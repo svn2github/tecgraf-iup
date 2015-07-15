@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <math.h>
 #include <iup.h>
 #include <iup_config.h>
 #include <iupgl.h>
@@ -307,7 +308,6 @@ void toggle_bar_visibility(Ihandle* item, Ihandle* ih)
 
 /********************************** Callbacks *****************************************/
 
-void view_fit_rect(int canvas_width, int canvas_height, int image_width, int image_height, int *view_width, int *view_height);
 
 int canvas_action_cb(Ihandle* canvas)
 {
@@ -332,7 +332,12 @@ int canvas_action_cb(Ihandle* canvas)
   if (image)
   {
     int view_width, view_height;
-    view_fit_rect(canvas_width, canvas_height, image->width, image->height, &view_width, &view_height);
+    Ihandle* zoom_val = IupGetDialogChild(canvas, "ZOOMVAL");
+    double zoom_index = IupGetDouble(zoom_val, "VALUE");
+    double zoom_factor = pow(2, zoom_index);
+
+    view_width = (int)(zoom_factor * image->width);
+    view_height = (int)(zoom_factor * image->height);
 
     x = (canvas_width - view_width) / 2;
     y = (canvas_height - view_height) / 2;
@@ -358,8 +363,45 @@ int canvas_unmap_cb(Ihandle* canvas)
   return IUP_DEFAULT;
 }
 
-int val_zoom_action_cb(Ihandle* val)
+void zoom_update(Ihandle* ih, double zoom_index)
 {
+  Ihandle* zoom_lbl = IupGetDialogChild(ih, "ZOOMLABEL");
+  Ihandle* canvas = IupGetDialogChild(ih, "CANVAS");
+  double zoom_factor = pow(2, zoom_index);
+  IupSetStrf(zoom_lbl, "TITLE", "%.0f%%", floor(zoom_factor * 100));
+  IupUpdate(canvas);
+}
+
+int zoomout_action_cb(Ihandle* ih)
+{
+  Ihandle* zoom_val = IupGetDialogChild(ih, "ZOOMVAL");
+  double zoom_index = IupGetDouble(zoom_val, "VALUE");
+  zoom_index--;
+  if (zoom_index < -6)
+    zoom_index = -6;
+  IupSetDouble(zoom_val, "VALUE", round(zoom_index));  /* fixed increments when using buttons */
+
+  zoom_update(ih, zoom_index);
+  return IUP_DEFAULT;
+}
+
+int zoomin_action_cb(Ihandle* ih)
+{
+  Ihandle* zoom_val = IupGetDialogChild(ih, "ZOOMVAL");
+  double zoom_index = IupGetDouble(zoom_val, "VALUE");
+  zoom_index++;
+  if (zoom_index > 6)
+    zoom_index = 6;
+  IupSetDouble(zoom_val, "VALUE", round(zoom_index));  /* fixed increments when using buttons */
+
+  zoom_update(ih, zoom_index);
+  return IUP_DEFAULT;
+}
+
+int zoom_valuechanged_cb(Ihandle* val)
+{
+  double zoom_index = IupGetDouble(val, "VALUE");
+  zoom_update(val, zoom_index);
   return IUP_DEFAULT;
 }
 
@@ -737,21 +779,22 @@ Ihandle* create_main_dialog(Ihandle *config)
 
   canvas = IupCanvas(NULL);
   IupSetAttribute(canvas, "NAME", "CANVAS");
-  IupSetAttribute(canvas, "DIRTY", "NO");
+  IupSetAttribute(canvas, "DIRTY", "NO");  /* custom attribute */
+  IupSetAttribute(canvas, "ZOOMFACTOR", "1");  /* custom attribute */
   IupSetCallback(canvas, "ACTION", (Icallback)canvas_action_cb);
   IupSetCallback(canvas, "DROPFILES_CB", (Icallback)dropfiles_cb);
   IupSetCallback(canvas, "MAP_CB", (Icallback)canvas_map_cb);
   IupSetCallback(canvas, "UNMAP_CB", (Icallback)canvas_unmap_cb);
 
   statusbar = IupHbox(
-    IupSetAttributes(IupLabel("(0, 0) = [0   0   0]"), "EXPAND=HORIZONTAL, PADDING=10x5"),
+    IupSetAttributes(IupLabel("(0, 0) = 0   0   0"), "EXPAND=HORIZONTAL, PADDING=10x5"),
     IupSetAttributes(IupLabel(NULL), "SEPARATOR=VERTICAL"),
     IupSetAttributes(IupLabel("[   0,    0]"), "SIZE=50x, PADDING=10x5"),
     IupSetAttributes(IupLabel(NULL), "SEPARATOR=VERTICAL"),
-    IupSetAttributes(IupLabel("    "), "SIZE=10x, PADDING=10x5"),
-    IupSetAttributes(IupButton(NULL, NULL), "IMAGE=IUP_ZoomOut, FLAT=Yes"),
-    IupSetCallbacks(IupSetAttributes(IupVal(NULL), "MIN=-1, VALUE=0, RASTERSIZE=150x25"), "ACTION", val_zoom_action_cb, NULL),
-    IupSetAttributes(IupButton(NULL, NULL), "IMAGE=IUP_ZoomIn, FLAT=Yes"),
+    IupSetAttributes(IupLabel("100%"), "SIZE=30x, PADDING=10x5, NAME=ZOOMLABEL"),
+    IupSetCallbacks(IupSetAttributes(IupButton(NULL, NULL), "IMAGE=IUP_ZoomOut, FLAT=Yes, TIP=\"Zoom Out (Ctrl+'-')\""), "ACTION", zoomout_action_cb, NULL),
+    IupSetCallbacks(IupSetAttributes(IupVal(NULL), "VALUE=0, MIN=-6, MAX=6, RASTERSIZE=150x25, NAME=ZOOMVAL"), "VALUECHANGED_CB", zoom_valuechanged_cb, NULL),
+    IupSetCallbacks(IupSetAttributes(IupButton(NULL, NULL), "IMAGE=IUP_ZoomIn, FLAT=Yes, TIP=\"Zoom In (Ctrl+'+')\""), "ACTION", zoomin_action_cb, NULL),
     NULL);
   IupSetAttribute(statusbar, "NAME", "STATUSBAR");
   IupSetAttribute(statusbar, "ALIGNMENT", "ACENTER");
@@ -918,6 +961,9 @@ Ihandle* create_main_dialog(Ihandle *config)
   IupSetCallback(dlg, "K_cV", (Icallback)item_paste_action_cb);
   IupSetCallback(dlg, "K_cC", (Icallback)item_copy_action_cb);
   IupSetCallback(dlg, "K_cP", (Icallback)item_print_action_cb);
+  IupSetCallback(dlg, "K_cMinus", (Icallback)zoomout_action_cb);
+  IupSetCallback(dlg, "K_cPlus", (Icallback)zoomin_action_cb);
+  IupSetCallback(dlg, "K_cEqual", (Icallback)zoomin_action_cb);
 
   /* parent for pre-defined dialogs in closed functions (IupMessage and IupAlarm) */
   IupSetAttributeHandle(NULL, "PARENTDIALOG", dlg);

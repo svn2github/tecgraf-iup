@@ -201,7 +201,7 @@ config = iup.config{}
 config.app_name = "simple_paint"
 config:Load()
 
-lbl_statusbar = iup.label{title = "(0, 0) = [0   0   0]", expand = "HORIZONTAL", padding = "10x5"}
+statusbar = iup.label{title = "(0, 0) = [0   0   0]", expand = "HORIZONTAL", padding = "10x5"}
 
 canvas = iup.canvas{
   config = config,
@@ -425,30 +425,12 @@ function item_pagesetup:action()
 end
 
 function view_fit_rect(canvas_width, canvas_height, image_width, image_height)
-  local correct = 0
-
   local view_width = canvas_width
-  local view_height = canvas_height
+  local view_height = (canvas_width * image_height) / image_width
 
-  local rView = canvas_height / canvas_width
-  local rImage = image_height / image_width
-
-  if ((rView <= 1 and rImage <= 1) or (rView >= 1 and rImage >= 1)) then -- view and image are horizontal rectangles 
-    if (rView > rImage) then
-      correct = 2
-    else
-      correct = 1
-    end
-  elseif (rView < 1 and rImage > 1) then -- view is a horizontal rectangle and image is a vertical rectangle
-    correct = 1
-  elseif (rView > 1 and rImage < 1) then -- view is a vertical rectangle and image is a horizontal rectangle
-    correct = 2
-  end
-
-  if (correct == 1) then
-    view_width = canvas_height / rImage
-  elseif (correct == 2) then
-    view_height = canvas_width * rImage
+  if (view_height > canvas_height) then 
+    view_height = canvas_height
+    view_width = (canvas_height * image_width) / image_height
   end
   
   return view_width, view_height
@@ -569,12 +551,12 @@ function item_background:action()
 end
 
 function item_toolbar:action()
-  toggle_bar_visibility(self, toolbar_hb)
+  toggle_bar_visibility(self, toolbar)
   config:SetVariable("MainWindow", "Toolbar", item_toolbar.value)
 end
 
 function item_statusbar:action()
-  toggle_bar_visibility(self, lbl_statusbar)
+  toggle_bar_visibility(self, statusbar)
   config:SetVariable("MainWindow", "Statusbar", item_statusbar.value)
 end
 
@@ -596,7 +578,7 @@ btn_save = iup.button{image = "IUP_FileSave", flat = "Yes", action = item_save.a
 btn_copy = iup.button{image =  "IUP_EditCopy", flat = "Yes", action = item_copy.action, canfocus="No", tip = "Copy (Ctrl+C)"}
 btn_paste = iup.button{image = "IUP_EditPaste", flat = "Yes", action = item_paste.action, canfocus="No", tip = "Paste (Ctrl+V)"}
 
-toolbar_hb = iup.hbox{
+toolbar = iup.hbox{
   btn_new,
   btn_open,
   btn_save,
@@ -608,9 +590,9 @@ toolbar_hb = iup.hbox{
 }
 
 vbox = iup.vbox{
-  toolbar_hb,
+  toolbar,
   canvas,
-  lbl_statusbar,
+  statusbar,
 }
 
 dlg = iup.dialog{
@@ -649,15 +631,15 @@ config:RecentInit(recent_menu, 10)
 show_statusbar = config:GetVariableDef("MainWindow", "Statusbar", "ON")
 if (show_statusbar == "OFF") then
   item_statusbar.value = "OFF"
-  lbl_statusbar.floating = "YES"
-  lbl_statusbar.visible = "NO"
+  statusbar.floating = "YES"
+  statusbar.visible = "NO"
 end
 
 show_toolbar = config:GetVariableDef("MainWindow", "Toolbar", "ON")
 if (show_toolbar == "OFF") then
   item_toolbar.value = "OFF"
-  toolbar_hb.floating = "YES"
-  toolbar_hb.visible = "NO"
+  toolbar.floating = "YES"
+  toolbar.visible = "NO"
 end
 
 -- show the dialog at the last position, with the last size

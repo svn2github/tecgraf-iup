@@ -4,6 +4,10 @@
 #include <ctype.h>
 #include <iup.h>
 #include <iup_config.h>
+#include <iupgl.h>
+#include <cd.h>
+#include <cdprint.h>
+#include <cdiup.h>
 #include <im.h>
 #include <im_image.h>
 #include <im_convert.h>
@@ -143,6 +147,9 @@ imImage* read_file(const char* filename)
 
       image = new_image;
     }
+
+    /* create OpenGL compatible data */
+    imImageGetOpenGLData(image, NULL);
   }
   return image;
 }
@@ -300,6 +307,61 @@ void toggle_bar_visibility(Ihandle* item, Ihandle* ih)
 
 /********************************** Callbacks *****************************************/
 
+void view_fit_rect(int canvas_width, int canvas_height, int image_width, int image_height, int *view_width, int *view_height);
+
+int canvas_action_cb(Ihandle* canvas)
+{
+  int x, y, canvas_width, canvas_height;
+  unsigned int ri, gi, bi;
+  imImage* image;
+  cdCanvas* cd_canvas = (cdCanvas*)IupGetAttribute(canvas, "cdCanvas");
+  Ihandle* config = (Ihandle*)IupGetAttribute(canvas, "CONFIG");
+  const char* background = IupConfigGetVariableStrDef(config, "MainWindow", "Background", "255 255 255");
+
+  IupGetIntInt(canvas, "DRAWSIZE", &canvas_width, &canvas_height);
+
+  cdCanvasActivate(cd_canvas);
+
+  /* draw the background */
+  sscanf(background, "%u %u %u", &ri, &gi, &bi);
+  cdCanvasBackground(cd_canvas, cdEncodeColor((unsigned char)ri, (unsigned char)gi, (unsigned char)bi));
+  cdCanvasClear(cd_canvas);
+
+  /* draw the image at the center of the canvas */
+  image = (imImage*)IupGetAttribute(canvas, "IMAGE");
+  if (image)
+  {
+    int view_width, view_height;
+    view_fit_rect(canvas_width, canvas_height, image->width, image->height, &view_width, &view_height);
+
+    x = (canvas_width - view_width) / 2;
+    y = (canvas_height - view_height) / 2;
+
+    imcdCanvasPutImage(cd_canvas, image, x, y, view_width, view_height, 0, 0, 0, 0);
+  }
+
+  cdCanvasFlush(cd_canvas);
+  return IUP_DEFAULT;
+}
+
+int canvas_map_cb(Ihandle* canvas)
+{
+  cdCanvas* cd_canvas = cdCreateCanvas(CD_IUPDBUFFER, canvas);
+  IupSetAttribute(canvas, "cdCanvas", (char*)cd_canvas);
+  return IUP_DEFAULT;
+}
+
+int canvas_unmap_cb(Ihandle* canvas)
+{
+  cdCanvas* cd_canvas = (cdCanvas*)IupGetAttribute(canvas, "cdCanvas");
+  cdKillCanvas(cd_canvas);
+  return IUP_DEFAULT;
+}
+
+int val_zoom_action_cb(Ihandle* val)
+{
+  return IUP_DEFAULT;
+}
 
 int dropfiles_cb(Ihandle* ih, const char* filename)
 {
@@ -449,6 +511,82 @@ int item_revert_action_cb(Ihandle* item_revert)
   return IUP_DEFAULT;
 }
 
+int item_pagesetup_action_cb(Ihandle* item_pagesetup)
+{
+  Ihandle* canvas = IupGetDialogChild(item_pagesetup, "CANVAS");
+  Ihandle* config = (Ihandle*)IupGetAttribute(canvas, "CONFIG");
+  int margin_width = IupConfigGetVariableIntDef(config, "Print", "MarginWidth", 20);
+  int margin_height = IupConfigGetVariableIntDef(config, "Print", "MarginHeight", 20);
+
+  if (IupGetParam("Page Setup", NULL, NULL, "Margin Width (mm): %i[1,]\nMargin Height (mm): %i[1,]\n", &margin_width, &margin_height, NULL))
+  {
+    IupConfigSetVariableInt(config, "Print", "MarginWidth", margin_width);
+    IupConfigSetVariableInt(config, "Print", "MarginHeight", margin_height);
+  }
+
+  return IUP_DEFAULT;
+}
+
+void view_fit_rect(int canvas_width, int canvas_height, int image_width, int image_height, int *view_width, int *view_height)
+{
+  *view_width = canvas_width;
+  *view_height = (canvas_width * image_height) / image_width;
+
+  if (*view_height > canvas_height)
+  {
+    *view_height = canvas_height;
+    *view_width = (canvas_height * image_width) / image_height;
+  }
+}
+
+int item_print_action_cb(Ihandle* item_print)
+{
+  Ihandle* canvas = IupGetDialogChild(item_print, "CANVAS");
+  unsigned int ri, gi, bi;
+  imImage* image;
+  char* title = IupGetAttribute(IupGetDialog(item_print), "TITLE");
+  Ihandle* config = (Ihandle*)IupGetAttribute(canvas, "CONFIG");
+  const char* background = IupConfigGetVariableStrDef(config, "MainWindow", "Background", "255 255 255");
+
+  cdCanvas* cd_canvas = cdCreateCanvasf(CD_PRINTER, "%s -d", title);
+  if (!cd_canvas)
+    return IUP_DEFAULT;
+
+  /* draw the background */
+  sscanf(background, "%u %u %u", &ri, &gi, &bi);
+  cdCanvasBackground(cd_canvas, cdEncodeColor((unsigned char)ri, (unsigned char)gi, (unsigned char)bi));
+  cdCanvasClear(cd_canvas);
+
+  /* draw the image at the center of the canvas */
+  image = (imImage*)IupGetAttribute(canvas, "IMAGE");
+  if (image)
+  {
+    int x, y, canvas_width, canvas_height, view_width, view_height;
+    double canvas_width_mm, canvas_height_mm;
+    Ihandle* config = (Ihandle*)IupGetAttribute(canvas, "CONFIG");
+    int margin_width = IupConfigGetVariableIntDef(config, "Print", "MarginWidth", 20);
+    int margin_height = IupConfigGetVariableIntDef(config, "Print", "MarginHeight", 20);
+
+    cdCanvasGetSize(cd_canvas, &canvas_width, &canvas_height, &canvas_width_mm, &canvas_height_mm);
+
+    /* convert to pixels */
+    margin_width = (int)((margin_width * canvas_width) / canvas_width_mm);
+    margin_height = (int)((margin_height * canvas_height) / canvas_height_mm);
+
+    view_fit_rect(canvas_width - 2 * margin_width, canvas_height - 2 * margin_height, 
+                  image->width, image->height, 
+                  &view_width, &view_height);
+
+    x = (canvas_width - view_width) / 2;
+    y = (canvas_height - view_height) / 2;
+
+    imcdCanvasPutImage(cd_canvas, image, x, y, view_width, view_height, 0, 0, 0, 0);
+  }
+
+  cdKillCanvas(cd_canvas);
+  return IUP_DEFAULT;
+}
+
 int item_exit_action_cb(Ihandle* item_exit)
 {
   Ihandle* dlg = IupGetDialog(item_exit);
@@ -506,6 +644,9 @@ int item_paste_action_cb(Ihandle* item_paste)
       image = new_image;
     }
 
+    /* create OpenGL compatible data */
+    imImageGetOpenGLData(image, NULL);
+
     imImageSetAttribString(image, "FileFormat", "JPEG");
 
     IupSetAttribute(canvas, "DIRTY", "Yes");
@@ -518,6 +659,29 @@ int item_paste_action_cb(Ihandle* item_paste)
     if (old_image)
       imImageDestroy(old_image);
   }
+  return IUP_DEFAULT;
+}
+
+int item_background_action_cb(Ihandle* item_background)
+{
+  Ihandle* canvas = IupGetDialogChild(item_background, "CANVAS");
+  Ihandle* config = (Ihandle*)IupGetAttribute(canvas, "CONFIG");
+  Ihandle* colordlg = IupColorDlg();
+  const char* background = IupConfigGetVariableStrDef(config, "MainWindow", "Background", "255 255 255");
+  IupSetStrAttribute(colordlg, "VALUE", background);
+  IupSetAttributeHandle(colordlg, "PARENTDIALOG", IupGetDialog(item_background));
+
+  IupPopup(colordlg, IUP_CENTERPARENT, IUP_CENTERPARENT);
+
+  if (IupGetInt(colordlg, "STATUS") == 1)
+  {
+    background = IupGetAttribute(colordlg, "VALUE");
+    IupConfigSetVariableStr(config, "MainWindow", "Background", background);
+
+    IupUpdate(canvas);
+  }
+
+  IupDestroy(colordlg);
   return IUP_DEFAULT;
 }
 
@@ -565,22 +729,32 @@ Ihandle* create_main_dialog(Ihandle *config)
 {
   Ihandle *dlg, *vbox, *canvas, *menu;
   Ihandle *sub_menu_file, *file_menu, *item_exit, *item_new, *item_open, *item_save, *item_saveas, *item_revert;
-  Ihandle *sub_menu_edit, *edit_menu, *item_copy, *item_paste;
+  Ihandle *sub_menu_edit, *edit_menu, *item_copy, *item_paste, *item_print, *item_pagesetup;
   Ihandle *btn_copy, *btn_paste, *btn_new, *btn_open, *btn_save;
   Ihandle *sub_menu_help, *help_menu, *item_help, *item_about;
   Ihandle *sub_menu_view, *view_menu, *item_toolbar, *item_statusbar;
-  Ihandle *statusbar, *toolbar, *recent_menu;
+  Ihandle *statusbar, *toolbar, *recent_menu, *item_background;
 
   canvas = IupCanvas(NULL);
   IupSetAttribute(canvas, "NAME", "CANVAS");
   IupSetAttribute(canvas, "DIRTY", "NO");
-/* TODO: IupSetCallback(canvas, "ACTION", (Icallback)canvas_action_cb); */
+  IupSetCallback(canvas, "ACTION", (Icallback)canvas_action_cb);
   IupSetCallback(canvas, "DROPFILES_CB", (Icallback)dropfiles_cb);
+  IupSetCallback(canvas, "MAP_CB", (Icallback)canvas_map_cb);
+  IupSetCallback(canvas, "UNMAP_CB", (Icallback)canvas_unmap_cb);
 
-  statusbar = IupLabel("(0, 0) = [0   0   0]");
+  statusbar = IupHbox(
+    IupSetAttributes(IupLabel("(0, 0) = [0   0   0]"), "EXPAND=HORIZONTAL, PADDING=10x5"),
+    IupSetAttributes(IupLabel(NULL), "SEPARATOR=VERTICAL"),
+    IupSetAttributes(IupLabel("[   0,    0]"), "SIZE=50x, PADDING=10x5"),
+    IupSetAttributes(IupLabel(NULL), "SEPARATOR=VERTICAL"),
+    IupSetAttributes(IupLabel("    "), "SIZE=10x, PADDING=10x5"),
+    IupSetAttributes(IupButton(NULL, NULL), "IMAGE=IUP_ZoomOut, FLAT=Yes"),
+    IupSetCallbacks(IupSetAttributes(IupVal(NULL), "MIN=-1, VALUE=0, RASTERSIZE=150x25"), "ACTION", val_zoom_action_cb, NULL),
+    IupSetAttributes(IupButton(NULL, NULL), "IMAGE=IUP_ZoomIn, FLAT=Yes"),
+    NULL);
   IupSetAttribute(statusbar, "NAME", "STATUSBAR");
-  IupSetAttribute(statusbar, "EXPAND", "HORIZONTAL");
-  IupSetAttribute(statusbar, "PADDING", "10x5");
+  IupSetAttribute(statusbar, "ALIGNMENT", "ACENTER");
 
   item_new = IupItem("&New\tCtrl+N", NULL);
   IupSetAttribute(item_new, "IMAGE", "IUP_FileNew");
@@ -621,6 +795,12 @@ Ihandle* create_main_dialog(Ihandle *config)
   IupSetAttribute(item_revert, "NAME", "ITEM_REVERT");
   IupSetCallback(item_revert, "ACTION", (Icallback)item_revert_action_cb);
 
+  item_pagesetup = IupItem("Page Set&up...", NULL);
+  IupSetCallback(item_pagesetup, "ACTION", (Icallback)item_pagesetup_action_cb);
+
+  item_print = IupItem("&Print...\tCtrl+P", NULL);
+  IupSetCallback(item_print, "ACTION", (Icallback)item_print_action_cb);
+
   item_exit = IupItem("E&xit", NULL);
   IupSetCallback(item_exit, "ACTION", (Icallback)item_exit_action_cb);
 
@@ -646,6 +826,9 @@ Ihandle* create_main_dialog(Ihandle *config)
   IupSetAttribute(btn_paste, "TIP", "Paste (Ctrl+V)");
   IupSetAttribute(btn_paste, "CANFOCUS", "No");
 
+  item_background = IupItem("&Background...", NULL);
+  IupSetCallback(item_background, "ACTION", (Icallback)item_background_action_cb);
+
   item_toolbar = IupItem("&Toobar...", NULL);
   IupSetCallback(item_toolbar, "ACTION", (Icallback)item_toolbar_action_cb);
   IupSetAttribute(item_toolbar, "VALUE", "ON");
@@ -669,7 +852,11 @@ Ihandle* create_main_dialog(Ihandle *config)
     item_saveas,
     item_revert,
     IupSeparator(),
+    item_pagesetup,
+    item_print,
+    IupSeparator(),
     IupSubmenu("Recent &Files", recent_menu),
+    IupSeparator(),
     item_exit,
     NULL);
   edit_menu = IupMenu(
@@ -677,6 +864,8 @@ Ihandle* create_main_dialog(Ihandle *config)
     item_paste,
     NULL);
   view_menu = IupMenu(
+    item_background,
+    IupSeparator(),
     item_toolbar,
     item_statusbar,
     NULL);
@@ -728,6 +917,7 @@ Ihandle* create_main_dialog(Ihandle *config)
   IupSetCallback(dlg, "K_cS", (Icallback)item_save_action_cb);
   IupSetCallback(dlg, "K_cV", (Icallback)item_paste_action_cb);
   IupSetCallback(dlg, "K_cC", (Icallback)item_copy_action_cb);
+  IupSetCallback(dlg, "K_cP", (Icallback)item_print_action_cb);
 
   /* parent for pre-defined dialogs in closed functions (IupMessage and IupAlarm) */
   IupSetAttributeHandle(NULL, "PARENTDIALOG", dlg);

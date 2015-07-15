@@ -520,31 +520,14 @@ int item_pagesetup_action_cb(Ihandle* item_pagesetup)
 
 void view_fit_rect(int canvas_width, int canvas_height, int image_width, int image_height, int *view_width, int *view_height)
 {
-  double rView, rImage;
-  int correct = 0;
-
   *view_width = canvas_width;
-  *view_height = canvas_height;
+  *view_height = (canvas_width * image_height) / image_width;
 
-  rView = ((double)canvas_height) / canvas_width;
-  rImage = ((double)image_height) / image_width;
-
-  if ((rView <= 1 && rImage <= 1) || (rView >= 1 && rImage >= 1)) /* view and image are horizontal rectangles */
+  if (*view_height > canvas_height)
   {
-    if (rView > rImage)
-      correct = 2;
-    else
-      correct = 1;
+    *view_height = canvas_height;
+    *view_width = (canvas_height * image_width) / image_height;
   }
-  else if (rView < 1 && rImage > 1) /* view is a horizontal rectangle and image is a vertical rectangle */
-    correct = 1;
-  else if (rView > 1 && rImage < 1) /* view is a vertical rectangle and image is a horizontal rectangle */
-    correct = 2;
-
-  if (correct == 1)
-    *view_width = (int)(canvas_height / rImage);
-  else if (correct == 2)
-    *view_height = (int)(canvas_width * rImage);
 }
 
 int item_print_action_cb(Ihandle* item_print)
@@ -741,7 +724,7 @@ Ihandle* create_main_dialog(Ihandle *config)
   Ihandle *btn_copy, *btn_paste, *btn_new, *btn_open, *btn_save;
   Ihandle *sub_menu_help, *help_menu, *item_help, *item_about;
   Ihandle *sub_menu_view, *view_menu, *item_toolbar, *item_statusbar;
-  Ihandle *lbl_statusbar, *toolbar_hb, *recent_menu, *item_background;
+  Ihandle *statusbar, *toolbar, *recent_menu, *item_background;
 
   canvas = IupCanvas(NULL);
   IupSetAttribute(canvas, "NAME", "CANVAS");
@@ -751,10 +734,10 @@ Ihandle* create_main_dialog(Ihandle *config)
   IupSetCallback(canvas, "MAP_CB", (Icallback)canvas_map_cb);
   IupSetCallback(canvas, "UNMAP_CB", (Icallback)canvas_unmap_cb);
 
-  lbl_statusbar = IupLabel("(0, 0) = [0   0   0]");
-  IupSetAttribute(lbl_statusbar, "NAME", "STATUSBAR");
-  IupSetAttribute(lbl_statusbar, "EXPAND", "HORIZONTAL");
-  IupSetAttribute(lbl_statusbar, "PADDING", "10x5");
+  statusbar = IupLabel("(0, 0) = [0   0   0]");
+  IupSetAttribute(statusbar, "NAME", "STATUSBAR");
+  IupSetAttribute(statusbar, "EXPAND", "HORIZONTAL");
+  IupSetAttribute(statusbar, "PADDING", "10x5");
 
   item_new = IupItem("&New\tCtrl+N", NULL);
   IupSetAttribute(item_new, "IMAGE", "IUP_FileNew");
@@ -889,7 +872,7 @@ Ihandle* create_main_dialog(Ihandle *config)
     sub_menu_help,
     NULL);
 
-  toolbar_hb = IupHbox(
+  toolbar = IupHbox(
     btn_new,
     btn_open,
     btn_save,
@@ -897,13 +880,13 @@ Ihandle* create_main_dialog(Ihandle *config)
     btn_copy,
     btn_paste,
     NULL);
-  IupSetAttribute(toolbar_hb, "MARGIN", "5x5");
-  IupSetAttribute(toolbar_hb, "GAP", "2");
+  IupSetAttribute(toolbar, "MARGIN", "5x5");
+  IupSetAttribute(toolbar, "GAP", "2");
 
   vbox = IupVbox(
-    toolbar_hb,
+    toolbar,
     canvas,
-    lbl_statusbar,
+    statusbar,
     NULL);
 
   dlg = IupDialog(vbox);
@@ -930,16 +913,16 @@ Ihandle* create_main_dialog(Ihandle *config)
   {
     IupSetAttribute(item_toolbar, "VALUE", "OFF");
 
-    IupSetAttribute(toolbar_hb, "FLOATING", "YES");
-    IupSetAttribute(toolbar_hb, "VISIBLE", "NO");
+    IupSetAttribute(toolbar, "FLOATING", "YES");
+    IupSetAttribute(toolbar, "VISIBLE", "NO");
   }
 
   if (!IupConfigGetVariableIntDef(config, "MainWindow", "Statusbar", 1))
   {
     IupSetAttribute(item_statusbar, "VALUE", "OFF");
 
-    IupSetAttribute(lbl_statusbar, "FLOATING", "YES");
-    IupSetAttribute(lbl_statusbar, "VISIBLE", "NO");
+    IupSetAttribute(statusbar, "FLOATING", "YES");
+    IupSetAttribute(statusbar, "VISIBLE", "NO");
   }
 
   IupSetAttribute(dlg, "CONFIG", (char*)config);

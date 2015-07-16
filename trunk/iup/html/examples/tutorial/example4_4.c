@@ -198,6 +198,34 @@ void scrollbar_update(Ihandle* ih, int view_width, int view_height)
   IupSetFloat(ih, "DY", (float)canvas_height / (float)view_height);
 }
 
+static void scroll_calc_center(Ihandle* canvas, float *x, float *y)
+{
+  *x = IupGetFloat(canvas, "POSX") + IupGetFloat(canvas, "DX") / 2.0f;
+  *y = IupGetFloat(canvas, "POSY") + IupGetFloat(canvas, "DY") / 2.0f;
+}
+
+static void scroll_center(Ihandle* canvas, float old_center_x, float old_center_y)
+{
+  /* always update the scroll position
+     keeping it proportional to the old position
+     relative to the center of the canvas. */
+
+  float dx = IupGetFloat(canvas, "DX");
+  float dy = IupGetFloat(canvas, "DY");
+
+  float posx = old_center_x - dx / 2.0f;
+  float posy = old_center_y - dy / 2.0f;
+
+  if (posx < 0) posx = 0;
+  if (posx > 1 - dx) posx = 1 - dx;
+
+  if (posy < 0) posy = 0;
+  if (posy > 1 - dy) posy = 1 - dy;
+
+  IupSetFloat(canvas, "POSX", posx);
+  IupSetFloat(canvas, "POSY", posy);
+}
+
 void zoom_update(Ihandle* ih, double zoom_index)
 {
   Ihandle* zoom_lbl = IupGetDialogChild(ih, "ZOOMLABEL");
@@ -207,10 +235,15 @@ void zoom_update(Ihandle* ih, double zoom_index)
   IupSetStrf(zoom_lbl, "TITLE", "%.0f%%", floor(zoom_factor * 100));
   if (image)
   {
+    float old_center_x, old_center_y;
     int view_width = (int)(zoom_factor * image->width);
     int view_height = (int)(zoom_factor * image->height);
 
+    scroll_calc_center(canvas, &old_center_x, &old_center_y);
+
     scrollbar_update(canvas, view_width, view_height);
+
+    scroll_center(canvas, old_center_x, old_center_y);
   }
   IupUpdate(canvas);
 }
@@ -521,11 +554,16 @@ int canvas_resize_cb(Ihandle* canvas)
     Ihandle* zoom_val = IupGetDialogChild(canvas, "ZOOMVAL");
     double zoom_index = IupGetDouble(zoom_val, "VALUE");
     double zoom_factor = pow(2, zoom_index);
+    float old_center_x, old_center_y;
 
     int view_width = (int)(zoom_factor * image->width);
     int view_height = (int)(zoom_factor * image->height);
 
+    scroll_calc_center(canvas, &old_center_x, &old_center_y);
+
     scrollbar_update(canvas, view_width, view_height);
+
+    scroll_center(canvas, old_center_x, old_center_y);
   }
   return IUP_DEFAULT;
 }

@@ -136,19 +136,6 @@ imImage* read_file(const char* filename)
   imImage* image = imFileImageLoadBitmap(filename, 0, &error);
   if (error) 
     show_file_error(error);
-  else
-  {
-    /* we are going to support only RGB images with no alpha */
-    imImageRemoveAlpha(image);
-    if (image->color_space != IM_RGB)
-    {
-      imImage* new_image = imImageCreateBased(image, -1, -1, IM_RGB, -1);
-      imConvertColorSpace(image, new_image);
-      imImageDestroy(image);
-
-      image = new_image;
-    }
-  }
   return image;
 }
 
@@ -265,6 +252,22 @@ void set_new_image(Ihandle* canvas, imImage* image, const char* filename, int di
     IupSetAttribute(IupGetDialog(canvas), "TITLE", "Untitled - Simple Paint");
   }
 
+  /* we are going to support only RGB images with no alpha */
+  imImageRemoveAlpha(image);
+  if (image->color_space != IM_RGB)
+  {
+    imImage* new_image = imImageCreateBased(image, -1, -1, IM_RGB, -1);
+    imConvertColorSpace(image, new_image);
+    imImageDestroy(image);
+
+    image = new_image;
+  }
+
+  /* default file format */
+  const char* format = imImageGetAttribString(image, "FileFormat");
+  if (!format)
+    imImageSetAttribString(image, "FileFormat", "JPEG");
+    
   IupSetAttribute(canvas, "DIRTY", dirty? "Yes": "No");
   IupSetAttribute(canvas, "IMAGE", (char*)image);
 
@@ -814,19 +817,6 @@ int item_paste_action_cb(Ihandle* item_paste)
       show_error("Invalid Clipboard Data", 1);
       return IUP_DEFAULT;
     }
-
-    /* we are going to support only RGB images with no alpha */
-    imImageRemoveAlpha(image);
-    if (image->color_space != IM_RGB)
-    {
-      imImage* new_image = imImageCreateBased(image, -1, -1, IM_RGB, -1);
-      imConvertColorSpace(image, new_image);
-      imImageDestroy(image);
-
-      image = new_image;
-    }
-
-    imImageSetAttribString(image, "FileFormat", "JPEG");
 
     set_new_image(canvas, image, NULL, 1);  /* set dirty */
   }

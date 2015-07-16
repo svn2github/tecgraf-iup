@@ -148,9 +148,6 @@ imImage* read_file(const char* filename)
 
       image = new_image;
     }
-
-    /* create OpenGL compatible data */
-    imImageGetOpenGLData(image, NULL);
   }
   return image;
 }
@@ -167,22 +164,29 @@ int write_file(const char* filename, const imImage* image)
   return 1;
 }
 
-void new_file(Ihandle* ih, imImage* image)
+void set_new_image(Ihandle* canvas, imImage* image, const char* filename, int dirty)
 {
-  Ihandle* dlg = IupGetDialog(ih);
-  Ihandle* canvas = IupGetDialogChild(dlg, "CANVAS");
   imImage* old_image = (imImage*)IupGetAttribute(canvas, "IMAGE");
 
-  IupSetAttribute(dlg, "TITLE", "Untitled - Simple Paint");
-  IupSetAttribute(canvas, "FILENAME", NULL);
-  IupSetAttribute(canvas, "DIRTY", "NO");
+  if (filename)
+  {
+    IupSetStrAttribute(canvas, "FILENAME", filename);
+    IupSetfAttribute(IupGetDialog(canvas), "TITLE", "%s - Simple Paint", str_filetitle(filename));
+  }
+  else
+  {
+    IupSetAttribute(canvas, "FILENAME", NULL);
+    IupSetAttribute(IupGetDialog(canvas), "TITLE", "Untitled - Simple Paint");
+  }
+
+  IupSetAttribute(canvas, "DIRTY", dirty? "Yes": "No");
 
   IupSetAttribute(canvas, "IMAGE", (char*)image);
 
-  IupUpdate(canvas);
-
   if (old_image)
     imImageDestroy(old_image);
+
+  IupUpdate(canvas);
 }
 
 void check_new_file(Ihandle* dlg)
@@ -197,7 +201,7 @@ void check_new_file(Ihandle* dlg)
 
     image = imImageCreate(width, height, IM_RGB, IM_BYTE);
 
-    new_file(dlg, image);
+    set_new_image(canvas, image, NULL, 0);
   }
 }
 
@@ -206,20 +210,10 @@ void open_file(Ihandle* ih, const char* filename)
   imImage* image = read_file(filename);
   if (image)
   {
-    Ihandle* dlg = IupGetDialog(ih);
-    Ihandle* canvas = IupGetDialogChild(dlg, "CANVAS");
+    Ihandle* canvas = IupGetDialogChild(ih, "CANVAS");
     Ihandle* config = (Ihandle*)IupGetAttribute(canvas, "CONFIG");
-    imImage* old_image = (imImage*)IupGetAttribute(canvas, "IMAGE");
 
-    IupSetfAttribute(dlg, "TITLE", "%s - Simple Paint", str_filetitle(filename));
-    IupSetStrAttribute(canvas, "FILENAME", filename);
-    IupSetAttribute(canvas, "DIRTY", "NO");
-    IupSetAttribute(canvas, "IMAGE", (char*)image);
-
-    IupUpdate(canvas);
-
-    if (old_image)
-      imImageDestroy(old_image);
+    set_new_image(canvas, image, filename, 0);
 
     IupConfigRecentUpdate(config, filename);
   }
@@ -398,6 +392,32 @@ int zoomin_action_cb(Ihandle* ih)
   return IUP_DEFAULT;
 }
 
+int zoomnone_action_cb(Ihandle* ih)
+{
+  Ihandle* zoom_val = IupGetDialogChild(ih, "ZOOMVAL");
+  IupSetDouble(zoom_val, "VALUE", 0);
+  zoom_update(ih, 0);
+  return IUP_DEFAULT;
+}
+
+int canvas_wheel_cb(Ihandle* canvas, float delta)
+{
+  if (IupGetInt(NULL, "CONTROLKEY"))
+  {
+    if (delta < 0)
+      zoomout_action_cb(canvas);
+    else
+      zoomin_action_cb(canvas);
+  }
+  else
+  {
+    float posy = IupGetFloat(canvas, "POSY");
+    posy -= delta * IupGetFloat(canvas, "DY") / 10.0f;
+    IupSetFloat(canvas, "POSY", posy);
+  }
+  return IUP_DEFAULT;
+}
+
 int zoom_valuechanged_cb(Ihandle* val)
 {
   double zoom_index = IupGetDouble(val, "VALUE");
@@ -474,7 +494,7 @@ int item_new_action_cb(Ihandle* item_new)
       IupConfigSetVariableInt(config, "NewImage", "Width", width);
       IupConfigSetVariableInt(config, "NewImage", "Height", height);
 
-      new_file(item_new, image);
+      set_new_image(canvas, image, NULL, 0);
     }
   }
 
@@ -663,7 +683,6 @@ int item_paste_action_cb(Ihandle* item_paste)
   if (save_check(item_paste))
   {
     Ihandle* canvas = IupGetDialogChild(item_paste, "CANVAS");
-    imImage* old_image = (imImage*)IupGetAttribute(canvas, "IMAGE");
 
     Ihandle *clipboard = IupClipboard();
     imImage* image = IupGetNativeHandleImage(IupGetAttribute(clipboard, "NATIVEIMAGE"));
@@ -686,20 +705,9 @@ int item_paste_action_cb(Ihandle* item_paste)
       image = new_image;
     }
 
-    /* create OpenGL compatible data */
-    imImageGetOpenGLData(image, NULL);
-
     imImageSetAttribString(image, "FileFormat", "JPEG");
 
-    IupSetAttribute(canvas, "DIRTY", "Yes");
-    IupSetAttribute(canvas, "IMAGE", (char*)image);
-    IupSetAttribute(canvas, "FILENAME", NULL);
-    IupSetAttribute(IupGetDialog(canvas), "TITLE", "Untitled - Simple Paint");
-
-    IupUpdate(canvas);
-
-    if (old_image)
-      imImageDestroy(old_image);
+    set_new_image(canvas, image, NULL, 1);  /* set dirty */
   }
   return IUP_DEFAULT;
 }
@@ -785,16 +793,18 @@ Ihandle* create_main_dialog(Ihandle *config)
   IupSetCallback(canvas, "DROPFILES_CB", (Icallback)dropfiles_cb);
   IupSetCallback(canvas, "MAP_CB", (Icallback)canvas_map_cb);
   IupSetCallback(canvas, "UNMAP_CB", (Icallback)canvas_unmap_cb);
+  IupSetCallback(canvas, "WHEEL_CB", (Icallback)canvas_wheel_cb);
 
   statusbar = IupHbox(
     IupSetAttributes(IupLabel("(0, 0) = 0   0   0"), "EXPAND=HORIZONTAL, PADDING=10x5"),
     IupSetAttributes(IupLabel(NULL), "SEPARATOR=VERTICAL"),
     IupSetAttributes(IupLabel("[   0,    0]"), "SIZE=50x, PADDING=10x5"),
     IupSetAttributes(IupLabel(NULL), "SEPARATOR=VERTICAL"),
-    IupSetAttributes(IupLabel("100%"), "SIZE=30x, PADDING=10x5, NAME=ZOOMLABEL"),
+    IupSetAttributes(IupLabel("100%"), "SIZE=30x, PADDING=10x5, NAME=ZOOMLABEL, ALIGNMENT=ARIGHT"),
     IupSetCallbacks(IupSetAttributes(IupButton(NULL, NULL), "IMAGE=IUP_ZoomOut, FLAT=Yes, TIP=\"Zoom Out (Ctrl+'-')\""), "ACTION", zoomout_action_cb, NULL),
     IupSetCallbacks(IupSetAttributes(IupVal(NULL), "VALUE=0, MIN=-6, MAX=6, RASTERSIZE=150x25, NAME=ZOOMVAL"), "VALUECHANGED_CB", zoom_valuechanged_cb, NULL),
     IupSetCallbacks(IupSetAttributes(IupButton(NULL, NULL), "IMAGE=IUP_ZoomIn, FLAT=Yes, TIP=\"Zoom In (Ctrl+'+')\""), "ACTION", zoomin_action_cb, NULL),
+    IupSetCallbacks(IupSetAttributes(IupButton(NULL, NULL), "IMAGE=IUP_ZoomActualSize, FLAT=Yes, TIP=\"Actual Size\""), "ACTION", zoomnone_action_cb, NULL),
     NULL);
   IupSetAttribute(statusbar, "NAME", "STATUSBAR");
   IupSetAttribute(statusbar, "ALIGNMENT", "ACENTER");

@@ -147,9 +147,6 @@ imImage* read_file(const char* filename)
 
       image = new_image;
     }
-
-    /* create OpenGL compatible data */
-    imImageGetOpenGLData(image, NULL);
   }
   return image;
 }
@@ -634,9 +631,6 @@ int item_paste_action_cb(Ihandle* item_paste)
 
       image = new_image;
     }
-
-    /* create OpenGL compatible data */
-    imImageGetOpenGLData(image, NULL);
 
     imImageSetAttribString(image, "FileFormat", "JPEG");
 
